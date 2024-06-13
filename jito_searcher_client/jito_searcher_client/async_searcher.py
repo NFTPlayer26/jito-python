@@ -1,5 +1,4 @@
 import time
-import os
 from typing import List, Optional, Tuple
 
 from grpc import ssl_channel_credentials
@@ -8,7 +7,6 @@ from grpc.aio import (
     UnaryStreamClientInterceptor,
     UnaryUnaryClientInterceptor,
     secure_channel,
-    insecure_channel,
 )
 from solders.keypair import Keypair
 
@@ -51,7 +49,6 @@ class AsyncSearcherInterceptor(
 
         self._access_token: Optional[JwtToken] = None
         self._refresh_token: Optional[JwtToken] = None
-        self.no_auth = os.getenv('NO_AUTH', 'false').lower() == 'true'
 
     async def intercept_unary_stream(
         self,
@@ -59,78 +56,65 @@ class AsyncSearcherInterceptor(
         client_call_details,
         request,
     ):
-        if not self.no_auth:
-            await self.authenticate_if_needed()
-            client_call_details = self._insert_headers(
-                [("authorization", f"Bearer {self._access_token.token}")],
-                client_call_details,
-            )
+        await self.authenticate_if_needed()
+
+        client_call_details = self._insert_headers(
+            [("authorization", f"Bearer {self._access_token.token}")],
+            client_call_details,
+        )
+
         call = await continuation(client_call_details, request)
         return call
 
-    async def intercept_unary_unary(
-        self,
-        continuation,
-        client_call_details,
-        request,
-    ):
-        if not self.no_auth:
-            await self.authenticate_if_needed()
-            client_call_details = self._insert_headers(
-                [("authorization", f"Bearer {self._access_token.token}")],
-                client_call_details,
-            )
-        undone_call = await continuation(client_call_details, request)
-        response = await undone_call
-        return response
+    async def intercept_unary_unary(self, continuation, client_call_details, request):
+        await self.authenticate_if_needed()
 
-    @staticmethod
-    def _insert_headers(new_metadata: List[Tuple[str, str]], client_call_details) -> ClientCallDetails:
-        metadata = []
-        if client_call_details.metadata is not None:
-            metadata = list(client_call_details.metadata)
-        metadata.extend(new_metadata)
-
-        return ClientCallDetails(
-            client_call_details.method,
-            client_call_details.timeout,
-            metadata,
-            client_call_details.credentials,
-            False,
+        client_call_details = self._insert_headers(
+            [("authorization", f"Bearer {self._access_token.token}")],
+            client_call_details,
         )
 
-    async def authenticate_if_needed(self):
-        """
-        Maybe authenticates depending on state of access + refresh tokens
-        """
-        if self.no_auth:
-            return
-        now = int(time.time())
-        if self._access_token is None or self._refresh_token is None or now >= self._refresh_token.expiration:
-            await self.full_authentication()
-        elif now >= self._access_token.expiration:
-            await self.refresh_authentication()
+        call = await continuation(client_call_details, request)
+        return call
 
-    async def refresh_authentication(self):
-        """
-        Performs an authentication refresh with the block engine, which involves using the refresh token to get a new
-        access token.
-        """
+    def _insert_headers(self, headers, client_call_details: ClientCallDetails):
+        new_metadata = []
+        if client_call_details.metadata is not None:
+            new_metadata = list(client_call_details.metadata)
+        new_metadata.extend(headers)
+        client_call_details = ClientCallDetails(
+            client_call_details.method,
+            client_call_details.timeout,
+            new_metadata,
+            client_call_details.credentials,
+            client_call_details.wait_for_ready,
+            client_call_details.compression,
+        )
+        return client_call_details
+
+    async def authenticate_if_needed(self):
+        if self._access_token is None or self._access_token.is_expired():
+            await self.full_authentication()
+        elif self._refresh_token.is_expired():
+            await self.full_authentication()
+        else:
+            await self.refresh_access_token()
+
+    async def refresh_access_token(self):
         credentials = ssl_channel_credentials()
         channel = secure_channel(self._url, credentials)
         auth_client = AuthServiceStub(channel)
 
-        new_access_token: RefreshAccessTokenResponse = await auth_client.RefreshAccessToken(
+        refresh_token_response: RefreshAccessTokenResponse = await auth_client.RefreshAccessToken(
             RefreshAccessTokenRequest(refresh_token=self._refresh_token.token)
         )
+
         self._access_token = JwtToken(
-            token=new_access_token.access_token.value, expiration=new_access_token.access_token.expires_at_utc.seconds
+            token=refresh_token_response.access_token.value,
+            expiration=refresh_token_response.access_token.expires_at_utc.seconds,
         )
 
     async def full_authentication(self):
-        """
-        Performs full authentication with the block engine
-        """
         credentials = ssl_channel_credentials()
         channel = secure_channel(self._url, credentials)
         auth_client = AuthServiceStub(channel)
@@ -171,15 +155,22 @@ async def get_async_searcher_client(url: str, kp: Keypair) -> SearcherServiceStu
     :param kp: keypair of the block engine
     :return: SearcherServiceStub which handles authentication on requests
     """
-    no_auth = os.getenv('NO_AUTH', 'false').lower() == 'true'
-    searcher_interceptor = AsyncSearcherInterceptor(url, kp) if not no_auth else None
+    # Authenticate immediately
+    searcher_interceptor = AsyncSearcherInterceptor(url, kp)
+    await searcher_interceptor.authenticate_if_needed()
 
-    if no_auth:
-        channel = insecure_channel(url)
-    else:
-        credentials = ssl_channel_credentials()
-        channel = secure_channel(url, credentials, interceptors=[searcher_interceptor])
-        if searcher_interceptor:
-            channel._unary_stream_interceptors.append(searcher_interceptor)
+    credentials = ssl_channel_credentials()
+    channel = secure_channel(url, credentials, interceptors=[searcher_interceptor])
+    channel._unary_stream_interceptors.append(searcher_interceptor)
 
+    return SearcherServiceStub(channel)
+
+async def get_async_searcher_client_no_auth(url: str) -> SearcherServiceStub:
+    """
+    Returns a Searcher Service client that connects without authentication.
+    :param url: url of the block engine without http/https
+    :return: SearcherServiceStub without authentication
+    """
+    credentials = ssl_channel_credentials()
+    channel = secure_channel(url, credentials)
     return SearcherServiceStub(channel)
