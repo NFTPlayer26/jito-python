@@ -10,8 +10,7 @@ setup(
         'spl',
         'grpcio',
         'protobuf',
-        'click',
-        # asyncio'nun burada olması gerekmiyor çünkü Python'ın standart kütüphanesinin bir parçası
+        'click'
     ],
     package_data={
         '': ['*.py', '*.pyi'],
