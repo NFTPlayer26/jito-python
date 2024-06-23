@@ -6,6 +6,7 @@ setup(
     packages=find_packages(include=[
         "jito_geyser", "jito_geyser.*",
         "jito_searcher_client", "jito_searcher_client.*",
+        "geyser-grpc-plugin", "geyser-grpc-plugin.*",
         "mev-protos", "mev-protos.*"
     ]),
     install_requires=[
