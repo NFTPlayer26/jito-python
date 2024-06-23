@@ -3,20 +3,20 @@ from setuptools import setup, find_packages
 setup(
     name='pyhton_jito_bundle',
     version='0.1',
-    packages=find_packages(include=[
-        'geyser_grpc_plugin',
-        'jito_geyser',
-        'jito_searcher_client',
-        'jito_searcher_client.*',
-        'mev_protos'
-    ]),
+    packages=find_packages(),
     install_requires=[
         'solana',
         'solders',
-        'spl',
-        'grpcio',
-        'protobuf',
-        'click'
+        'aiogram',
+        'aiohttp',
+        'logging',
+        'asyncstdlib',
+        'borsh-construct',
+        'construct',
+        'spl-token',
+        'websockets',
+        'emoji',
+        'jito_searcher_client'
     ],
     package_data={
         '': ['*.py', '*.pyi'],
