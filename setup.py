@@ -3,12 +3,7 @@ from setuptools import setup, find_packages
 setup(
     name='pyhton_jito_bundle',
     version='0.1',
-    packages=find_packages(include=[
-        "jito_geyser", "jito_geyser.*",
-        "jito_searcher_client", "jito_searcher_client.*",
-        "geyser-grpc-plugin", "geyser-grpc-plugin.*",
-        "mev-protos", "mev-protos.*"
-    ]),
+    packages=find_packages(),
     install_requires=[
         'solana',
         'solders',
@@ -16,6 +11,6 @@ setup(
         'grpcio',
         'protobuf',
         'click',
-        'asyncio',
+        'asyncio',  # Bu, Python'ın standart kütüphanesinin bir parçası olduğu için aslında gereksinimlerde olmamalıdır.
     ],
 )
